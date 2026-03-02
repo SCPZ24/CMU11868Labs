@@ -218,6 +218,13 @@ __device__ void broadcast_index(const int *big_index, const int *big_shape, cons
       out_index[i] = 0;
     }
   }
+  /**
+   * Example
+   * big shape:      [3, 4, 5, 6]
+   * big index:      [2, 3, 2, 3]
+   * small shape:          [1, 4] (align in right)
+   * out_index(we get):    [0, 3]
+  */
 }
 
 __global__ void mapKernel(
@@ -268,7 +275,19 @@ __global__ void mapKernel(
   // 5. Calculate the position of element in out_array according to out_index and out_strides
   // 6. Apply the unary function to the input element and write the output to the out memory
 
-  assert(false && "Not Implemented");
+  const int blockIndex = blockIdx.x + blockIdx.y * gridDims.x + blockIdx.z * gridDims.x*gridDims.y;
+  const int blockSize = blockDims.x * blockDims.y * blockDims.z;
+  const int threadIndex = threadIdx.x + threadIdx.y * blockDims.x + threadIdx.z * blockDims.x*blockDims.y;
+  const int out_position = blockIndex * blockSize + threadIndex;
+
+  if(out_position < out_size){
+    to_index(out_position, out_shape, out_index, shape_size);
+    broadcast_index(out_index, out_shape, in_shape, in_index, shape_size, shape_size);
+    const int in_position = index_to_position(in_index, in_strides, shape_size);
+    const float data = in_storage[in_position];
+    out[out_position] = fn(fn_id, data);
+  }
+
   /// END HW1_1
 }
 
@@ -334,7 +353,22 @@ __global__ void zipKernel(
   // 7.Calculate the position of element in b_array according to b_index and b_strides
   // 8. Apply the binary function to the input elements in a_array & b_array and write the output to the out memory
 
-  assert(false && "Not Implemented");
+  const int blockIndex = blockIdx.x + blockIdx.y * gridDims.x + blockIdx.z * gridDims.x*gridDims.y;
+  const int blockSize = blockDims.x * blockDims.y * blockDims.z;
+  const int threadIndex = threadIdx.x + threadIdx.y * blockDims.x + threadIdx.z * blockDims.x*blockDims.y;
+  const int out_position = blockIndex * blockSize + threadIndex;
+
+  if(out_position < out_size){
+    to_index(out_position, out_shape, out_index, out_shape_size);
+    broadcast_index(out_index, out_shape, a_shape, a_index, out_shape_size, a_shape_size);
+    const int a_position = index_to_position(a_index, a_strides, a_shape_size);
+    const float a_data = a_storage[a_position];
+    broadcast_index(out_index, out_shape, b_shape, b_index, out_shape_size, b_shape_size);
+    const int b_position = index_to_position(b_index, b_strides, b_shape_size);
+    const float b_data = b_storage[b_position];
+    out[out_position] = fn(fn_id, a_data, b_data);
+  }
+
   /// END HW1_2
 }
 
