@@ -413,7 +413,7 @@ __global__ void reduceKernel(
    *  None (Fills in out array)
    */
 
-  extern __shared__ double cache[]; // Uncomment this line if you want to use shared memory to store partial results
+  extern __shared__ float cache[]; // Shared memory to store partial results
   int out_index[MAX_DIMS];
 
   /// BEGIN HW1_3
@@ -515,30 +515,32 @@ __global__ void MatrixMultiplyKernel(
   // 7. Write the output to global memory
 
   const int K = a_shape[2], M = a_shape[1], N = b_shape[2];
-  if (blockIdx.x * TILE >= M || blockIdx.y * TILE >= N) return;
   a_storage += a_batch_stride * batch + blockIdx.x * TILE * K;
   b_storage += b_batch_stride * batch + blockIdx.y * TILE;
   const int t_i = threadIdx.y, t_j = threadIdx.x;
   out += out_strides[0] * batch + blockIdx.x * TILE * N + blockIdx.y * TILE + t_i * N + t_j;
   const int row = blockIdx.x * TILE + t_i, col = blockIdx.y * TILE + t_j;
+  const bool rowCheck = (row < M);
+  const bool colCheck = (col < N);
 
-  if(row < M && col < N){
-    float tempValue = 0.0;
-    for(int tileCount = 0; tileCount < K; tileCount += TILE){
-      a_shared[t_i][t_j] = (tileCount + t_j < K) ? a_storage[t_i * K + t_j] : 0.0;
-      b_shared[t_i][t_j] = (tileCount + t_i < K) ? b_storage[t_i * N + t_j] : 0.0;
+  float tempValue = 0.0;
+  for(int tileCount = 0; tileCount < K; tileCount += TILE){
+    a_shared[t_i][t_j] = (rowCheck && tileCount + t_j < K) ? a_storage[t_i * K + t_j] : 0.0;
+    b_shared[t_i][t_j] = (colCheck && tileCount + t_i < K) ? b_storage[t_i * N + t_j] : 0.0;
 
-      __syncthreads();
+    __syncthreads();
 
-      for(int k = 0; k < TILE; ++k){
-        tempValue += a_shared[t_i][k] * b_shared[k][t_j];
-      }
-
-      __syncthreads();
-
-      a_storage += TILE;
-      b_storage += TILE * N;
+    for(int k = 0; k < TILE; ++k){
+      tempValue += a_shared[t_i][k] * b_shared[k][t_j];
     }
+
+    __syncthreads();
+
+    a_storage += TILE;
+    b_storage += TILE * N;
+  }
+
+  if(rowCheck && colCheck){
     *out = tempValue;
   }
 
@@ -784,7 +786,7 @@ extern "C"
 
     // Launch kernel
     int threadsPerBlock = 32;
-    int blocksPerGrid = out_size
+    int blocksPerGrid = out_size;
     size_t SMEMPerBlock = threadsPerBlock * sizeof(float);
     reduceKernel<<<blocksPerGrid, threadsPerBlock, SMEMPerBlock>>>(
         d_out, d_out_shape, d_out_strides, out_size,
