@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, List, Tuple
 
 from typing_extensions import Protocol
+from collections import defaultdict
 
 
 def central_difference(f: Any, *vals: Any, arg: int = 0, epsilon: float = 1e-6) -> Any:
@@ -141,9 +142,18 @@ def backpropagate(variable: Variable, deriv: Any) -> None:
         3. Otherwise, the derivative should be propagated via chain rule
     """
     # BEGIN ASSIGN2_1
-    # TODO
-   
-    raise NotImplementedError("Task Autodiff Not Implemented Yet")
+    
+    topoOrder = topological_sort(variable)
+    gradients = defaultdict(int)
+    gradients[variable.unique_id] = deriv
+
+    for node in topoOrder:
+        if node.is_leaf():
+            node.accumulate_derivative(gradients[node.unique_id])
+        else:
+            for (parent, grad) in node.chain_rule(gradients[node.unique_id]):
+                gradients[parent.unique_id] += grad
+
     # END ASSIGN2_1
 
 
