@@ -567,7 +567,7 @@ void tensorMap(
     cudaMemcpy(d_in_strides, in_strides, shape_size * sizeof(int), cudaMemcpyHostToDevice);
     
     int threadsPerBlock = BASE_THREAD_NUM;
-    int blocksPerGrid = (out_size + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = out_size;
     mapKernel<<<blocksPerGrid, threadsPerBlock>>>(
       d_out, d_out_shape, d_out_strides, out_size, 
       d_in, d_in_shape, d_in_strides, 
@@ -706,7 +706,7 @@ void tensorReduce(
     cudaMemcpy(d_a_strides, a_strides, shape_size * sizeof(int), cudaMemcpyHostToDevice);
     
     int threadsPerBlock = BASE_THREAD_NUM;
-    int blocksPerGrid = (out_size + threadsPerBlock - 1) / threadsPerBlock;
+    int blocksPerGrid = out_size;
     reduceKernel<<<blocksPerGrid, threadsPerBlock>>>(
         d_out, d_out_shape, d_out_strides, out_size, 
         d_a, d_a_shape, d_a_strides, 
