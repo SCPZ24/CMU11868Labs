@@ -15,7 +15,6 @@ from .tensor import Tensor
 
 from typing import Any, Dict, Optional, Sequence, Tuple
 
-
 class Embedding(Module):
     def __init__(self, num_embeddings: int, embedding_dim: int, backend: TensorBackend):
         super().__init__()
@@ -33,7 +32,9 @@ class Embedding(Module):
         self.num_embeddings = num_embeddings # Vocab size
         self.embedding_dim  = embedding_dim  # Embedding Dimension
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        self.matrix = Parameter((rand((num_embeddings, embedding_dim), backend, True) - 0.5) * 2)
+
         ### END ASSIGN3_2
     
     def forward(self, x: Tensor):
@@ -45,9 +46,11 @@ class Embedding(Module):
         Returns:
             output : Tensor of shape (batch_size, seq_len, embedding_dim)
         """
-        bs, seq_len = x.shape
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        map = one_hot(x, self.num_embeddings) # (batch, seqlen, num_embed)
+        return map @ self.matrix.value
+
         ### END ASSIGN3_2
 
     
@@ -73,7 +76,13 @@ class Dropout(Module):
         Note: If p_dropout is 0, directly return the input tensor. Otherwise, the random seed may cause problems
         """
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        if not self.training or self.p_dropout == 0:
+            return x
+        else:
+            mask = np.random.binomial(1, 1-self.p_dropout, x.shape)
+            return x * mask
+
         ### END ASSIGN3_2
 
 
@@ -91,9 +100,11 @@ class Linear(Module):
             weights - The learnable weights of shape (in_size, out_size) initialized from Uniform(-1/sqrt(in_size), 1/sqrt(in_size)).
             bias   - The learnable weights of shape (out_size, ) initialized from Uniform(-1/sqrt(in_size), 1/sqrt(in_size)).
         """
-        self.out_size = out_size
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        self.weights = Parameter((rand((in_size, out_size), backend, True) - 0.5) * 2 / np.sqrt(in_size))
+        self.bias = Parameter((rand((in_size, out_size), backend, True) - 0.5) * 2 / np.sqrt(in_size)) if bias else None
+
         ### END ASSIGN3_2
 
     def forward(self, x: Tensor):
@@ -105,9 +116,13 @@ class Linear(Module):
         Returns:
             output : Tensor of shape (n, out_size)
         """
-        batch, in_size = x.shape
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        if self.bias is None:
+            return x @ self.weights.value
+        else:
+            return x @ self.weights.value + self.bias.value
+
         ### END ASSIGN3_2
 
 
@@ -127,7 +142,9 @@ class LayerNorm1d(Module):
         self.dim = dim
         self.eps = eps
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        self.linear = Linear(dim, dim, True, backend)
+
         ### END ASSIGN3_2
 
     def forward(self, x: Tensor) -> Tensor:
@@ -143,5 +160,10 @@ class LayerNorm1d(Module):
         """
         batch, dim = x.shape
         ### BEGIN ASSIGN3_2
-        raise NotImplementedError
+        
+        mu = x.mean(dim = 1) #(batch,)
+        sigma = (x.var(dim = 1) + self.eps) ** 0.5
+        moved = x - mu
+        return self.linear((moved) / sigma)
+
         ### END ASSIGN3_2
