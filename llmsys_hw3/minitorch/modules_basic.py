@@ -33,7 +33,7 @@ class Embedding(Module):
         self.embedding_dim  = embedding_dim  # Embedding Dimension
         ### BEGIN ASSIGN3_2
         
-        self.matrix = Parameter((rand((num_embeddings, embedding_dim), backend, True) - 0.5) * 2)
+        self.weights = Parameter((rand((num_embeddings, embedding_dim), backend, True) - 0.5) * 2)
 
         ### END ASSIGN3_2
     
@@ -48,8 +48,10 @@ class Embedding(Module):
         """
         ### BEGIN ASSIGN3_2
         
-        map = one_hot(x, self.num_embeddings) # (batch, seqlen, num_embed)
-        return map @ self.matrix.value
+        batch_size, seq_len = x.shape
+        map = one_hot(x, self.num_embeddings).view(batch_size * seq_len, self.num_embeddings) # (batch, seqlen, num_embed)
+        res = map @ self.weights.value
+        return res.view(batch_size, seq_len, self.embedding_dim)
 
         ### END ASSIGN3_2
 
@@ -80,8 +82,8 @@ class Dropout(Module):
         if not self.training or self.p_dropout == 0:
             return x
         else:
-            mask = np.random.binomial(1, 1-self.p_dropout, x.shape)
-            return x * mask
+            mask = tensor_from_numpy(np.random.binomial(1, 1-self.p_dropout, x.shape))
+            return x * mask / (1-self.p_dropout)
 
         ### END ASSIGN3_2
 
@@ -143,7 +145,8 @@ class LayerNorm1d(Module):
         self.eps = eps
         ### BEGIN ASSIGN3_2
         
-        self.linear = Linear(dim, dim, True, backend)
+        self.weights = Parameter(ones_tensor_from_numpy((dim,), backend))
+        self.bias = Parameter(zeros_tensor_from_numpy((dim,), backend))
 
         ### END ASSIGN3_2
 
@@ -158,12 +161,12 @@ class LayerNorm1d(Module):
         Output: 
             output - Tensor of shape (bs, dim)
         """
-        batch, dim = x.shape
         ### BEGIN ASSIGN3_2
         
         mu = x.mean(dim = 1) #(batch,)
         sigma = (x.var(dim = 1) + self.eps) ** 0.5
         moved = x - mu
-        return self.linear((moved) / sigma)
+        norm = moved / sigma
+        return norm * self.weights.value + self.bias.value
 
         ### END ASSIGN3_2
