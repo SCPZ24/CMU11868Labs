@@ -17,7 +17,7 @@ sys.path.append("./")
 import minitorch
 from minitorch import DecoderLM
 from minitorch.cuda_kernel_ops import CudaKernelOps
-
+from minitorch.nn import argmax
 
 def get_dataset(dataset_name, model_max_length):
     """
@@ -268,7 +268,7 @@ def evaluate_loss(model, examples, batch_size, collate_fn, desc):
 
 
 def generate(
-    model,
+    model: DecoderLM,
     examples,
     src_key,
     tgt_key,
@@ -304,11 +304,14 @@ def generate(
 
         while len(token_ids) <= model_max_length:
             # BEGIN ASSIGN3_4
-            # TODO
             # run the model with current token_ids, and predict the next token (gen_id)
             # hint: obtain the logits of next token, and take the argmax.
             gen_id = 0
-            raise NotImplementedError("Generation Function Not Implemented Yet")
+            
+            gen = model.forward(minitorch.tensor(token_ids, backend))
+            logits = gen.to_numpy()[0, -1, :]
+            gen_id = np.argmax(logits)
+
             # END ASSIGN3_4
 
             if gen_id == tokenizer.vocab[f'<eos_{tgt_key}>']:
