@@ -1,5 +1,5 @@
 import numpy as np
-from .tensor import tensor, tensor_from_numpy
+from .tensor import Tensor, tensor, tensor_from_numpy
 from .module import Module, Parameter
 from .modules_basic import (
     Embedding,
@@ -45,12 +45,13 @@ class MultiHeadAttention(Module):
         self.attn_hidden_dim = n_embd // n_head
 
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
-        # self.q_projection = 
-        # self.k_projection = 
-        # self.v_projection = 
-        # self.out_projection = 
-        # self.dropout = 
+        
+        self.q_projection = Linear(n_embd, n_embd, bias, backend)
+        self.k_projection = Linear(n_embd, n_embd, bias, backend)
+        self.v_projection = Linear(n_embd, n_embd, bias, backend)
+
+        self.out_projection = Linear(n_embd, n_embd, bias, backend)
+        self.dropout = Dropout(p_dropout)
         ### END ASSIGN3_3
 
     def create_causal_mask(self, seq_len):
@@ -72,7 +73,7 @@ class MultiHeadAttention(Module):
         mask = -np.finfo(datatype).max * np.triu(np.ones((1, 1, seq_len, seq_len), dtype=datatype), 1)
         return tensor_from_numpy(mask, backend=self.backend)
 
-    def project_to_query_key_value(self, x):
+    def project_to_query_key_value(self, x: Tensor):
         """
         Project input embeddings to Query, Key, and Value matrices for self-attention.
         
@@ -87,7 +88,12 @@ class MultiHeadAttention(Module):
         """
         batch_size, seq_len, n_embd = x.shape
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
+
+        x = x.view(batch_size * seq_len, n_embd)
+        q = self.q_projection(x).view(batch_size, seq_len, self.n_head, self.attn_hidden_dim).permute(0,2,1,3).contiguous()
+        kT = self.k_projection(x).view(batch_size, seq_len, self.n_head, self.attn_hidden_dim).permute(0,2,3,1).contiguous()
+        v = self.v_projection(x).view(batch_size, seq_len, self.n_head, self.attn_hidden_dim).permute(0,2,1,3).contiguous()
+
         ### END ASSIGN3_3
         return q, kT, v
     
@@ -103,14 +109,23 @@ class MultiHeadAttention(Module):
         Returns:
             Tensor: Attention output of shape (batch_size, seq_len, n_embd)
         """
-        batch_size, num_head, queries_len, q_dim = q.shape
+        batch_size, _, queries_len, q_dim = q.shape
         _, _, k_dim, _ = kT.shape
         _, _, _, v_dim = v.shape
         assert q_dim == k_dim == v_dim
         result = None
         
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
+        
+        if self.causal:
+            mask = self.create_causal_mask(queries_len)
+            qk = q @ kT / np.sqrt(self.attn_hidden_dim) + mask
+        else:
+            qk = q @ kT / np.sqrt(self.attn_hidden_dim)
+        result = softmax(qk, 3) @ v # (batch_size, num_heads, seq_len, attn_hidden_dim)
+        result = result.permute(0, 2, 1, 3).contiguous().view(batch_size, queries_len, self.n_embd)
+        result = self.out_projection(result)
+
         ### END ASSIGN3_3
 
         return result
@@ -127,7 +142,10 @@ class MultiHeadAttention(Module):
         """
         batch_size, seq_len, n_embd = x.shape
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
+
+        q, kT, v = self.project_to_query_key_value(x)
+        return self.self_attention(q, kT, v)
+
         ### END ASSIGN3_3
 
 
@@ -196,14 +214,15 @@ class TransformerLayer(Module):
             ff (FeedForward): Feed-forward network layer
         """
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
-        # self.ln_1 = 
-        # self.ln_2 = 
-        # self.attention = 
-        # self.ff = 
+
+        self.ln_1 = LayerNorm1d(n_embd, ln_eps, backend)
+        self.ln_2 = LayerNorm1d(n_embd, ln_eps, backend)
+        self.attention = MultiHeadAttention(n_embd, n_head, True, p_dropout, bias, backend)
+        self.ff = FeedForward(n_embd, p_dropout=p_dropout, bias=bias, backend=backend)
+
         ### END ASSIGN3_3
 
-    def forward(self, x):
+    def forward(self, x: Tensor):
         """
         Forward pass through transformer layer with pre-layer normalization.
         
@@ -213,9 +232,22 @@ class TransformerLayer(Module):
         Returns:
             Tensor: Output tensor of shape (batch_size, seq_len, n_embd)
         """
-        batch_size, seq_len, n_embd = x.shape
+        batch_size, seq_len, n_embed = x.shape
         ### BEGIN YOUR SOLUTION
-        raise NotImplementedError
+        
+        x = x.view(batch_size * seq_len, n_embed)
+        x1 = self.ln_1(x)
+        x = x.view(batch_size, seq_len, n_embed)
+        x1 = x1.view(batch_size, seq_len, n_embed)
+        x1 = self.attention(x1)
+        x = x + x1
+        x = x.view(batch_size * seq_len, n_embed)
+        x2 = self.ln_2(x)
+        x = x.view(batch_size, seq_len, n_embed)
+        x2 = x2.view(batch_size, seq_len, n_embed)
+        x2 = self.ff(x2)
+        return x + x2
+
         ### END YOUR SOLUTION
 
 
@@ -260,16 +292,17 @@ class DecoderLM(Module):
         self.n_embd = n_embd
         self.n_vocab = n_vocab
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
-        # self.token_embeddings = 
-        # self.position_embeddings = 
-        # self.t_layer_1 = 
-        # self.t_layer_2 = 
-        # self.t_layer_3 = 
-        # self.t_layer_4 = 
-        # self.dropout = 
-        # self.ln = 
-        # self.lm_head = 
+
+        self.token_embeddings = Embedding(n_vocab, n_embd, backend)
+        self.position_embeddings = Embedding(n_positions, n_embd, backend)
+        self.t_layer_1 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
+        self.t_layer_2 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
+        self.t_layer_3 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
+        self.t_layer_4 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
+        self.dropout = Dropout(p_dropout)
+        self.ln = LayerNorm1d(n_embd, ln_eps, backend)
+        self.lm_head = Linear(n_embd, n_vocab, bias, backend)
+
         ### END ASSIGN3_3
     
     def forward(self, idx):
@@ -286,7 +319,23 @@ class DecoderLM(Module):
         batch_size, seq_len = idx.shape
 
         ### BEGIN ASSIGN3_3
-        raise NotImplementedError
+        
+        token_embed = self.token_embeddings(idx)
+        position = tensor_from_numpy(np.arange(seq_len), self.backend, False).view(1, seq_len)
+        position_embed = self.position_embeddings(position)
+        x = token_embed + position_embed
+        x = self.dropout(x)
+        x = self.t_layer_1(x)
+        x = self.t_layer_2(x)
+        x = self.t_layer_3(x)
+        x = self.t_layer_4(x)
+        x = x.view(batch_size * seq_len, self.n_embd)
+        x = self.ln(x)
+        x = self.lm_head(x) 
+        x = x.view(batch_size, seq_len, self.n_vocab)
+
+        return x
+
         # 1. Get token embeddings of shape (batch_size, seq_len, n_embd)
         # 2. Create positional embeddings of shape (1, seq_len, n_embd):
         #    - Create position ids tensor [0, 1, 2, ..., seq_len-1] of shape (1, seq_len)
