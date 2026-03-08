@@ -105,7 +105,7 @@ class Linear(Module):
         ### BEGIN ASSIGN3_2
         
         self.weights = Parameter((rand((in_size, out_size), backend, True) - 0.5) * 2 / np.sqrt(in_size))
-        self.bias = Parameter((rand((in_size, out_size), backend, True) - 0.5) * 2 / np.sqrt(in_size)) if bias else None
+        self.bias = Parameter((rand((out_size,), backend, True) - 0.5) * 2 / np.sqrt(in_size)) if bias else None
 
         ### END ASSIGN3_2
 

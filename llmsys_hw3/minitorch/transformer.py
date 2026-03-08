@@ -52,6 +52,7 @@ class MultiHeadAttention(Module):
 
         self.out_projection = Linear(n_embd, n_embd, bias, backend)
         self.dropout = Dropout(p_dropout)
+
         ### END ASSIGN3_3
 
     def create_causal_mask(self, seq_len):
@@ -123,14 +124,15 @@ class MultiHeadAttention(Module):
         else:
             qk = q @ kT / np.sqrt(self.attn_hidden_dim)
         result = softmax(qk, 3) @ v # (batch_size, num_heads, seq_len, attn_hidden_dim)
-        result = result.permute(0, 2, 1, 3).contiguous().view(batch_size, queries_len, self.n_embd)
+        result = result.permute(0, 2, 1, 3).contiguous().view(batch_size * queries_len, self.n_embd)
         result = self.out_projection(result)
+        result = result.view(batch_size, queries_len, self.n_embd)
 
         ### END ASSIGN3_3
 
         return result
 
-    def forward(self, x):
+    def forward(self, x: Tensor):
         """
         Compute multi-head attention with optional causal masking.
         
@@ -235,15 +237,13 @@ class TransformerLayer(Module):
         batch_size, seq_len, n_embed = x.shape
         ### BEGIN YOUR SOLUTION
         
-        x = x.view(batch_size * seq_len, n_embed)
-        x1 = self.ln_1(x)
-        x = x.view(batch_size, seq_len, n_embed)
+        x_flat = x.view(batch_size * seq_len, n_embed)
+        x1 = self.ln_1(x_flat)
         x1 = x1.view(batch_size, seq_len, n_embed)
         x1 = self.attention(x1)
         x = x + x1
-        x = x.view(batch_size * seq_len, n_embed)
-        x2 = self.ln_2(x)
-        x = x.view(batch_size, seq_len, n_embed)
+        x_flat = x.view(batch_size * seq_len, n_embed)
+        x2 = self.ln_2(x_flat)
         x2 = x2.view(batch_size, seq_len, n_embed)
         x2 = self.ff(x2)
         return x + x2
