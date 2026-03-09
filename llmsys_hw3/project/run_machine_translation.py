@@ -348,8 +348,8 @@ def main(
     model_max_length=40,
     n_epochs=10,
     batch_size=128,
-    learning_rate=0.025,
-    samples_per_epoch=15000,
+    learning_rate=0.002,
+    samples_per_epoch=10000,
     n_vocab=10000,
     n_embd=256,
     seed=11111
