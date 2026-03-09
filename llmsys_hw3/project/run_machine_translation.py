@@ -308,7 +308,7 @@ def generate(
             # hint: obtain the logits of next token, and take the argmax.
             gen_id = 0
             
-            gen = model.forward(minitorch.tensor(token_ids, backend))
+            gen = model.forward(minitorch.tensor([token_ids], backend))
             logits = gen.to_numpy()[0, -1, :]
             gen_id = np.argmax(logits)
 
@@ -346,10 +346,10 @@ def evaluate_bleu(examples, gen_sents, tgt_key):
 def main(
     dataset_name='bbaaaa/iwslt14-de-en-preprocess',
     model_max_length=40,
-    n_epochs=20,
+    n_epochs=10,
     batch_size=128,
-    learning_rate=0.02,
-    samples_per_epoch=20000,
+    learning_rate=0.025,
+    samples_per_epoch=15000,
     n_vocab=10000,
     n_embd=256,
     seed=11111
