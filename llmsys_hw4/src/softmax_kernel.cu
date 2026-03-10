@@ -13,11 +13,15 @@ const float EPSILON = 1e-8f;
 
 namespace lightseq {
 namespace cuda {
+
+__device__ int cdiv(int a, int b) {
+  return (a + b - 1) / b;
+}
+
 /**
 @brief: softmax_kernel
 Softmax forward kernel for
   enc-self-attn, dec-self-attn, encdec-attn
-
 @thread
 gridDim.x = dynamic
 gridDim.y = batch_size
@@ -133,12 +137,15 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
   __shared__ typename BlockStore::TempStorage ts_store;
 
   T mval[ele_per_thread];
+  // attn_mask : [batch_size, to_len]
   if (attn_mask) {
     attn_mask += batch_id * to_len;
     BlockLoad(ts_load).Load(attn_mask, mval, to_len, REDUCE_FLOAT_INF_NEG);
   }
 
   inp += flat_3dim(batch_id, head_id, 0, nhead, from_len * to_len);
+
+
   for (int token_id = blockIdx.x * token_per_reduce; token_id < from_len;
        token_id += gridDim.x * token_per_reduce) {
     T inp_val[token_per_reduce][ele_per_thread];
@@ -151,6 +158,26 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
     // thread local max
     // BEGIN ASSIGN4_1_1
     
+    float val[token_per_reduce][ele_per_thread];
+    float l_max[token_per_reduce];
+    
+    for(int i = 0; i < token_per_reduce; ++i){
+      l_max[i] = REDUCE_FLOAT_INF_NEG;
+      for(int j = 0; j < ele_per_thread; ++j){
+        float tempmax;
+        if (mask_future && ele_per_thread * threadIdx.x + j > token_id + i) {
+          tempmax = REDUCE_FLOAT_INF_NEG;
+        } else {
+          tempmax = (float)inp_val[i][j];
+          if (attn_mask) {
+            tempmax += (float)mval[j];
+          }
+        }
+        val[i][j] = tempmax;
+        l_max[i] = fmaxf(l_max[i], tempmax);
+      }
+    }
+
     // END ASSIGN4_1_1
     // block reduce max
     blockReduce<ReduceType::kMax, token_per_reduce>(l_max);
@@ -167,6 +194,15 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
     // thread local sum
     // BEGIN ASSIGN4_1_1
     
+    float l_sum[token_per_reduce];
+    for(int i = 0; i < token_per_reduce; ++i){
+      l_sum[i] = 0.f;
+      for(int j = 0; j < ele_per_thread; ++j){
+        val[i][j] = __expf(val[i][j] - s_max[i]);
+        l_sum[i] += val[i][j];
+      }
+    }
+
     // END ASSIGN4_1_1
     // block reduce sum
     blockReduce<ReduceType::kSum, token_per_reduce>(l_sum);
@@ -182,6 +218,14 @@ __global__ void ker_attn_softmax(T *inp, const T *attn_mask, int from_len,
     /* step 3. compute final result */
     // BEGIN ASSIGN4_1_1
    
+    for(int i = 0; i < token_per_reduce && (token_id + i) < from_len; ++i){
+      for(int j = 0; j < ele_per_thread; ++j){
+        inp_val[i][j] = (T)(val[i][j] * s_sum[i]);
+      }
+      BlockStore(ts_store).Store(inp + (token_id + i) * to_len, inp_val[i],
+                                 to_len);
+    }
+
     // END ASSIGN4_1_1
   }  // blockIdx.x
 }
@@ -315,13 +359,58 @@ void launch_attn_softmax_bw(float *out_grad,
   dim3 block_dim(WARP_SIZE, warps_per_block);
   // BEGIN ASSIGN4_1_2
   
+  """
+  threads per block = warps_per_block * WRAP_SIZE = 128
+  grid_dim.x = cdiv(rows, warps_per_block) ?= rows / warps_per_block
+  outgrad.size = rows * softmax_len
+  total threads = rows * WRAP_SIZE
+
+  task for a thread = cdiv(softmax_len, WRAP_SIZE)
+  """
+
   
   // Launch kernel
   // Hint: use ker_attn_softmax_bw<float, ITERATIONS> depending on softmax_len
   
   // Copy back to the host
+
+  const int tensor_size = rows * softmax_len * sizeof(float);
+
+  float *d_out_grad, *d_soft_outp;
+  cudaMalloc((void **)&d_out_grad, tensor_size);
+  cudaMalloc((void **)&d_soft_outp, tensor_size);
   
+  cudaMemcpy(d_soft_outp, soft_outp, tensor_size, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_out_grad, out_grad, tensor_size, cudaMemcpyHostToDevice);
   
+  if(softmax_len <= 32){
+    ker_attn_softmax_bw<float, 1><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else if(softmax_len <= 64){
+    ker_attn_softmax_bw<float, 2><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else if(softmax_len <= 128){
+    ker_attn_softmax_bw<float, 4><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else if(softmax_len <= 256){
+    ker_attn_softmax_bw<float, 8><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else if(softmax_len <= 512){
+    ker_attn_softmax_bw<float, 16><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else if(softmax_len <= 1024){
+    ker_attn_softmax_bw<float, 32><<<grid_dim, block_dim, 0, stream>>>(
+        d_out_grad, d_soft_outp, softmax_len);
+  }else{
+    throw std::runtime_error(
+        "Sequence length greater than 512 is currently not supported");
+  }
+
+  cudaMemcpy(out_grad, d_out_grad, d_soft_outp, tensor_size, cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+
+  cudaFree(d_out_grad);
+  cudaFree(d_soft_outp);
 
   // Free memory on device
   // END ASSIGN4_1_2
