@@ -38,25 +38,43 @@ __global__ void ker_layer_norm(T *ln_res, T *vars, T *means, const T *inp,
                                const T *scale, const T *bias, int hidden_size) {
   
   /// BEGIN ASSIGN4_2_1
-  /// TODO
   // Hints:
   // 1. Compute x and x^2 with reinterpret_cast by casting to float4 for speedup
   // 2. Compute reduce sum with blockReduce and add epsilon with LN_EPSILON
   // 3. Compute layernorm result with reinterpret_cast by casting to float4 for speedup
-  
+  """
+  blockDim: 1-d, hidden_size
+  gridDim: 1-d, batch_size * seq_len
+  hidden_size: hidden_dim / 4
+  """
   // Step 1
-  float l_sum = 0;
+  float l_sum = 0, l_sq_sum = 0;
   const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + blockIdx.x * hidden_size;  
   for (uint idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
     float4 val = inp_f4[idx];
     l_sum += val.x + val.y + val.z + val.w;
+    l_sq_sum += val.x * val.x + val.y * val.y + val.z * val.z + val.w * val.w;
   }
+  float vals[2] = {l_sum, l_sq_sum};
+  blockReduce<ReduceType::kSum, 2>(vals);
 
   // Step 2
+  float mean = __fdividef(vals[0], hidden_size), sq_mean = __fdividef(vals[1], hidden_size);
+  float sigma = __fsqrt_rn(sq_mean - mean * mean + LN_EPSILON);
+  means[blockIdx.x] = mean;
+  vars[blockIdx.x] = sq_mean - mean * mean + LN_EPSILON;
+  float reverse_sigma = __fdividef(1.0f, sigma);
 
   // Step 3
-  
-  assert(false && "Not Implemented");
+  float4 *ln_res_f4 = reinterpret_cast<float4 *>(ln_res) + blockIdx.x * hidden_size;
+  float4 *scale_f4 = reinterpret_cast<float4 *>(scale);
+  float4 *bias_f4 = reinterpret_cast<float4 *>(bias);
+  for (uint idx = threadIdx.x; idx < hidden_size; idx += blockDim.x) {
+    float4 val = inp_f4[idx];
+    float4 ln_val = (val - mean) * reverse_sigma * scale_f4[idx] + bias_f4[idx];
+    ln_res_f4[idx] = ln_val;
+  }
+
   /// END ASSIGN4_2_1
 }
 
