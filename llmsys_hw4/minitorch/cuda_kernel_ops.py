@@ -408,7 +408,7 @@ class CudaKernelOps(TensorOps):
       #   BEGIN ASSIGN4_1_2
 
         stream_1 = torch.cuda.current_stream().cuda_stream
-        batch_size, nhead, seq_len, seq_len = soft_inp.shape
+        batch_size, nhead, from_len, to_len = soft_inp.shape
         lib_softmax.launch_attn_softmax_bw.argtypes = [
             np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
             np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
@@ -421,8 +421,8 @@ class CudaKernelOps(TensorOps):
         lib_softmax.launch_attn_softmax_bw(
             out_grad._tensor._storage,
             soft_inp._tensor._storage,
-            batch_size * nhead * seq_len,
-            seq_len,
+            batch_size * nhead * from_len,
+            to_len,
             stream_1
         )
 

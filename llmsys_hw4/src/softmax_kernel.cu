@@ -357,11 +357,6 @@ void launch_attn_softmax_bw(float *out_grad,
   const int warps_per_block = 4;
   dim3 grid_dim((rows + warps_per_block - 1) / warps_per_block);
   dim3 block_dim(WARP_SIZE, warps_per_block);
-  // BEGIN ASSIGN4_1_2
-  // Launch kernel
-  // Hint: use ker_attn_softmax_bw<float, ITERATIONS> depending on softmax_len
-  
-  // Copy back to the host
 
   const int tensor_size = rows * softmax_len * sizeof(float);
 
@@ -392,18 +387,21 @@ void launch_attn_softmax_bw(float *out_grad,
         d_out_grad, d_soft_outp, softmax_len);
   }else{
     throw std::runtime_error(
-        "Sequence length greater than 512 is currently not supported");
+        "Sequence length greater than 1024 is currently not supported");
   }
-
+  
   cudaMemcpy(out_grad, d_out_grad, tensor_size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
 
   cudaFree(d_out_grad);
   cudaFree(d_soft_outp);
 
-  // Free memory on device
-  // END ASSIGN4_1_2
-
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    fprintf(stderr, "launch_attn_softmax_bw Error: %s\n", cudaGetErrorString(err));
+    exit(EXIT_FAILURE);
+  }
+  
 }}
 
 }  
