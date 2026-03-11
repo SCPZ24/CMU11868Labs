@@ -358,17 +358,6 @@ void launch_attn_softmax_bw(float *out_grad,
   dim3 grid_dim((rows + warps_per_block - 1) / warps_per_block);
   dim3 block_dim(WARP_SIZE, warps_per_block);
   // BEGIN ASSIGN4_1_2
-  
-  """
-  threads per block = warps_per_block * WRAP_SIZE = 128
-  grid_dim.x = cdiv(rows, warps_per_block) ?= rows / warps_per_block
-  outgrad.size = rows * softmax_len
-  total threads = rows * WRAP_SIZE
-
-  task for a thread = cdiv(softmax_len, WRAP_SIZE)
-  """
-
-  
   // Launch kernel
   // Hint: use ker_attn_softmax_bw<float, ITERATIONS> depending on softmax_len
   
@@ -406,7 +395,7 @@ void launch_attn_softmax_bw(float *out_grad,
         "Sequence length greater than 512 is currently not supported");
   }
 
-  cudaMemcpy(out_grad, d_out_grad, d_soft_outp, tensor_size, cudaMemcpyDeviceToHost);
+  cudaMemcpy(out_grad, d_out_grad, tensor_size, cudaMemcpyDeviceToHost);
   cudaDeviceSynchronize();
 
   cudaFree(d_out_grad);
