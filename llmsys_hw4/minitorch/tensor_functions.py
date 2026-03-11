@@ -135,8 +135,9 @@ class PowerScalar(Function):
             output : Tensor
                 Tensor containing the result of raising every element of a to scalar.
         """
-        # COPY FROM ASSIGN3
-        raise NotImplementedError
+        out = a.f.pow_scalar_zip(a, scalar)
+        ctx.save_for_backward(a, scalar)
+        return out
 
     @staticmethod
     def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, float]:
@@ -158,11 +159,8 @@ class PowerScalar(Function):
                 gradient_for_a must be the correct gradient, but just return 0.0 for the gradient of scalar.
         """
         a, scalar = ctx.saved_values
-        grad_a    = None
-        
-        # COPY FROM ASSIGN3
-        raise NotImplementedError
-
+        grad_a = None
+        grad_a = grad_output * (scalar * (a ** (scalar - 1)))
         return (grad_a, 0.0)
 
 

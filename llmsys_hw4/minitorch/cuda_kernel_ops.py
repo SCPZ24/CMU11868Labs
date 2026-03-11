@@ -437,9 +437,9 @@ class CudaKernelOps(TensorOps):
         stream = torch.cuda.current_stream().cuda_stream
         batch_size, hidden_dim = inp.shape
 
-        res = Tensor.zeros(inp.shape)
-        means = Tensor.zeros((batch_size,))
-        vars = Tensor.zeros((batch_size,))
+        res = inp.zeros(inp.shape)
+        means = inp.zeros((batch_size,))
+        vars = inp.zeros((batch_size,))
 
         lib_layernorm.launch_layernorm.argtypes = [
             np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
