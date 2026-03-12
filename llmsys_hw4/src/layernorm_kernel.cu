@@ -11,6 +11,7 @@ namespace cuda {
 
 const float LN_EPSILON = 1e-8f;
 #define TILE_DIM 32
+#define MAX_DIM 1024
 
 
 /**
@@ -188,8 +189,8 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
   //      -> Now g.shfl_down helps you do so without consuming any shared memory. g.shfl_down makes it more efficient.
   // 4. Assign the final result to the correct position in the global output
 
-  __shared__ float betta_buffer[TILE_DIM][TILE_DIM] = {0};
-  __shared__ float gamma_buffer[TILE_DIM][TILE_DIM] = {0};
+  __shared__ float betta_buffer[TILE_DIM][TILE_DIM];
+  __shared__ float gamma_buffer[TILE_DIM][TILE_DIM];
 
   cg::thread_block b = cg::this_thread_block();
   cg::thread_block_tile<TILE_DIM> g = cg::tiled_partition<TILE_DIM>(b);
@@ -215,7 +216,7 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
     betta_tmp += l_grad_out;
     const float l_mean = means[row_index];
     const float l_var = vars[row_index];
-    gamma_tmp += l_grad_out * (inp[global_index] - l_mean) * __fsqrt_rn(l_var);
+    gamma_tmp += l_grad_out * (inp[global_index] - l_mean) * rsqrt(l_var);
   }
 
   betta_buffer[threadIdx.y][threadIdx.x] = betta_tmp;
@@ -285,46 +286,54 @@ __global__ void ker_ln_bw_dinp(T *inp_grad, const T *out_grad, const T *inp,
   // 4. Compute final gradient
   
   // Step 1
-  const int to_cal_float4 = (hidden_dim + blockDim.x - 1) / blockDim.x;
   const int offset = blockIdx.x * hidden_dim;
   const float4 *out_grad_f4 = reinterpret_cast<const float4 *>(out_grad) + offset;
+  const float4 *inp_f4 = reinterpret_cast<const float4 *>(inp) + offset;
   float4 *inp_grad_f4 = reinterpret_cast<float4 *>(inp_grad) + offset;
   const float4 *gamma_f4 = reinterpret_cast<const float4 *>(gamma);
 
   const float reverse_sigma = rsqrt(vars[blockIdx.x]);
+  const float mean = means[blockIdx.x];
 
-  float4 d_x_hat[to_cal_float4];
-  for(int t_index = threadIdx.x, i = 0; t_index < hidden_dim; t_index += blockDim.x, ++i){
-    float4 rgst_gamma = gamma_f4[t_index], rgst_out_grad = out_grad_f4[t_index];
-    d_x_hat[i].x = rgst_gamma.x * rgst_out_grad.x;
-    d_x_hat[i].y = rgst_gamma.y * rgst_out_grad.y;
-    d_x_hat[i].z = rgst_gamma.z * rgst_out_grad.z;
-    d_x_hat[i].w = rgst_gamma.w * rgst_out_grad.w;
+  __shared__ float4 d_x_hat[MAX_DIM];
+  __shared__ float4 x_hat[MAX_DIM];
+  for(int t_index = threadIdx.x; t_index < hidden_dim; t_index += blockDim.x){
+    const float4 l_gamma = gamma_f4[t_index], l_out_grad = out_grad_f4[t_index];
+    d_x_hat[t_index].x = l_gamma.x * l_out_grad.x;
+    d_x_hat[t_index].y = l_gamma.y * l_out_grad.y;
+    d_x_hat[t_index].z = l_gamma.z * l_out_grad.z;
+    d_x_hat[t_index].w = l_gamma.w * l_out_grad.w;
+    const float4 l_x = inp_f4[t_index];
+    x_hat[t_index].x = (l_x.x - mean) * reverse_sigma;
+    x_hat[t_index].y = (l_x.y - mean) * reverse_sigma;
+    x_hat[t_index].z = (l_x.z - mean) * reverse_sigma;
+    x_hat[t_index].w = (l_x.w - mean) * reverse_sigma;
   }
 
   float l_reduce[2] = {0.f, 0.f}; //0: sum(dxhat), 1: sum(dxhat * xhat)
-  const float mean = means[blockIdx.x];
   // 一个线程算4 * to_cal_float4个，即to_cal_float4个float4。
-  for(int t_index = threadIdx.x, i = 0; t_index < hidden_dim; t_index += blockDim.x, ++i){
-    const float4 l_d_x_hat = d_x_hat[i];
+  for(int t_index = threadIdx.x; t_index < hidden_dim; t_index += blockDim.x){
+    const float4 l_d_x_hat = d_x_hat[t_index];
     l_reduce[0] += l_d_x_hat.x + l_d_x_hat.y + l_d_x_hat.z + l_d_x_hat.w;
-    const float4 l_x = inp_f4[t_index];
-    l_reduce[1] += l_d_x_hat.x * (l_x.x - mean) * reverse_sigma + 
-                  l_d_x_hat.y * (l_x.y - mean) * reverse_sigma + 
-                  l_d_x_hat.z * (l_x.z - mean) * reverse_sigma + 
-                  l_d_x_hat.w * (l_x.w - mean) * reverse_sigma;  
+    const float4 l_x_hat = x_hat[t_index];
+    l_reduce[1] += l_d_x_hat.x * l_x_hat.x +
+                  l_d_x_hat.y * l_x_hat.y + 
+                  l_d_x_hat.z * l_x_hat.z + 
+                  l_d_x_hat.w * l_x_hat.w;  
   }
 
   blockReduce<ReduceType::kSum, 2>(l_reduce);
+  const int hidden_size = hidden_dim << 2;
 
-  for(int t_index = threadIdx.x, i = 0; t_index < hidden_dim; t_index += blockDim.x, ++i){
-    const float4 l_x = inp_grad_f4[t_index], l_d_x_hat = d_x_hat[i];
+  for(int t_index = threadIdx.x; t_index < hidden_dim; t_index += blockDim.x){
     float4 tmp;
-    const float m = hidden_dim * 4;
-    tmp.x = (l_d_x_hat.x - (l_reduce[0] + l_reduce[1] * (l_x.x - mean) * reverse_var) / m) * reverse_var;
-    tmp.y = (l_d_x_hat.y - (l_reduce[0] + l_reduce[1] * (l_x.y - mean) * reverse_var) / m) * reverse_var;
-    tmp.z = (l_d_x_hat.z - (l_reduce[0] + l_reduce[1] * (l_x.z - mean) * reverse_var) / m) * reverse_var;
-    tmp.w = (l_d_x_hat.w - (l_reduce[0] + l_reduce[1] * (l_x.w - mean) * reverse_var) / m) * reverse_var;
+    const float4 l_d_x_hat = d_x_hat[t_index], l_x_hat = x_hat[t_index];
+
+    tmp.x = (l_d_x_hat.x - (l_reduce[0] + l_reduce[1] * l_x_hat.x) / hidden_size) * reverse_sigma;
+    tmp.y = (l_d_x_hat.y - (l_reduce[0] + l_reduce[1] * l_x_hat.y) / hidden_size) * reverse_sigma;
+    tmp.z = (l_d_x_hat.z - (l_reduce[0] + l_reduce[1] * l_x_hat.z) / hidden_size) * reverse_sigma;
+    tmp.w = (l_d_x_hat.w - (l_reduce[0] + l_reduce[1] * l_x_hat.w) / hidden_size) * reverse_sigma;
+
     inp_grad_f4[t_index] = tmp;
   }
 
