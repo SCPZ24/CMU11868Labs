@@ -192,9 +192,6 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
   __shared__ float betta_buffer[TILE_DIM][TILE_DIM];
   __shared__ float gamma_buffer[TILE_DIM][TILE_DIM];
 
-  cg::thread_block b = cg::this_thread_block();
-  cg::thread_block_tile<TILE_DIM> g = cg::tiled_partition<TILE_DIM>(b);
-
   // input/output张量维度: (batch_size * seq_len, hidden_size)
   // blocksize(1-d) : hidden_size / TILE_DIM
   // 每个block: 计算TILE_DIM个hidden_size维度(第二维)上的列。
@@ -219,24 +216,30 @@ __global__ void ker_ln_bw_dgamma_dbetta(T *gamma_grad, T *betta_grad,
     gamma_tmp += l_grad_out * (inp[global_index] - l_mean) * rsqrt(l_var);
   }
 
-  betta_buffer[threadIdx.y][threadIdx.x] = betta_tmp;
-  gamma_buffer[threadIdx.y][threadIdx.x] = gamma_tmp;
+  betta_buffer[threadIdx.x][threadIdx.y] = betta_tmp;
+  gamma_buffer[threadIdx.x][threadIdx.y] = gamma_tmp;
 
   __syncthreads();
 
-  float betta_sum = betta_buffer[threadIdx.x][threadIdx.y];
-  float gamma_sum = gamma_buffer[threadIdx.x][threadIdx.y];
+  // TILE * TILE: y-行， x-列。  为了内存连续，这里和大矩阵里的行/列是相反的。
+  // 每个thread计算一个行。
 
-  // 使用 g.shfl_down 进行 warp-level reduce
-  // 每次将值向下移动 offset 个线程并累加
-  for (int offset = 16; offset > 0; offset /= 2) {
-    betta_sum += g.shfl_down(betta_sum, offset);
-    gamma_sum += g.shfl_down(gamma_sum, offset);
-  }
-
-    // 第一个线程写入结果
-  if (threadIdx.x == 0) {
-    betta_grad[col_index] = betta_sum;
+  const float4 *row_betta = reinterpret_cast<const float4 *>(betta_buffer[threadIdx.x]);
+  const float4 *row_gamma = reinterpret_cast<const float4 *>(gamma_buffer[threadIdx.x]);
+  const int iter_time = TILE_DIM >> 2;
+  
+  float beta_sum = 0.f;
+  float gamma_sum = 0.f;
+  
+  if(threadIdx.y == 0){
+    for (int i = 0; i < iter_time; ++i) {
+      const float4 l_betta = row_betta[i];
+      const float4 l_gamma = row_gamma[i];
+      beta_sum += l_betta.x + l_betta.y + l_betta.z + l_betta.w;
+      gamma_sum += l_gamma.x + l_gamma.y + l_gamma.z + l_gamma.w;
+    }
+  
+    betta_grad[col_index] = beta_sum;
     gamma_grad[col_index] = gamma_sum;
   }
 
