@@ -230,7 +230,9 @@ class SimpleOps(TensorOps):
 
     @staticmethod
     def matrix_multiply(a: "Tensor", b: "Tensor") -> "Tensor":
+        # ASSIGN2.5
         raise NotImplementedError("Not implemented in this assignment")
+        # END ASSIGN2.5
 
     @staticmethod
     def attn_softmax_fw(inp: Tensor, mask: Tensor):

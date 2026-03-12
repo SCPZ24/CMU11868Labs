@@ -54,6 +54,42 @@ THREADS_PER_BLOCK = 32
 
 class CudaKernelOps(TensorOps):
     @staticmethod
+    def cmap(fn: Callable[[float], float]) -> Callable[[Tensor, Tensor], Tensor]:
+        fn_id = fn_map[fn]
+
+        def ret(a: Tensor, out: Tensor) -> Tensor:
+            lib.tensorMap.argtypes = [
+                np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
+                np.ctypeslib.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS'),
+                np.ctypeslib.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS'),
+                ctypes.c_int,
+                np.ctypeslib.ndpointer(dtype=datatype, ndim=1, flags='C_CONTIGUOUS'),
+                np.ctypeslib.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS'),
+                np.ctypeslib.ndpointer(dtype=np.int32, ndim=1, flags='C_CONTIGUOUS'),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+            ]
+
+            lib.tensorMap.restype = None
+
+            lib.tensorMap(
+                out._tensor._storage,
+                out._tensor._shape.astype(np.int32),
+                out._tensor._strides.astype(np.int32),
+                out.size,
+                a._tensor._storage,
+                a._tensor._shape.astype(np.int32),
+                a._tensor._strides.astype(np.int32),
+                a.size,
+                len(a.shape),
+                fn_id
+            )
+            return out
+
+        return ret
+
+    @staticmethod
     def map(fn: Callable[[float], float]) -> MapProto:
         "See `tensor_ops.py`"
         fn_id = fn_map[fn]

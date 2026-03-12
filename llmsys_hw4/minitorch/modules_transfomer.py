@@ -1,3 +1,4 @@
+from .tensor_functions import *
 import numpy as np
 from .tensor import tensor, tensor_from_numpy
 from .module import Module, Parameter
@@ -103,12 +104,21 @@ class MultiHeadAttention(Module):
             else:
                 qk = q @ kT / np.sqrt(self.attn_hidden_dim)
             result = softmax(qk, 3) @ v # (batch_size, num_heads, seq_len, attn_hidden_dim)
-            result = result.permute(0, 2, 1, 3).contiguous().view(batch_size * queries_len, self.n_embd)
-            result = self.out_projection(result)
-            result = result.view(batch_size, queries_len, self.n_embd)
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            
+            if self.causal:
+                mask = self.create_causal_mask(queries_len)
+                qk = q @ kT / np.sqrt(self.attn_hidden_dim)
+                result = Attn_Softmax.apply(qk, mask)
+            else: 
+                mask = qk.zeros(qk.shape)
+                qk = q @ kT / np.sqrt(self.attn_hidden_dim)
+                result = Attn_Softmax.apply(qk, mask)
+        result = result.permute(0, 2, 1, 3).contiguous().view(batch_size * queries_len, self.n_embd)
+        result = self.out_projection(result)
+        result = result.view(batch_size, queries_len, self.n_embd)
+
             # END ASSIGN3_3
 
         return result
@@ -188,7 +198,10 @@ class TransformerLayer(Module):
             self.ln_2 = LayerNorm1d(n_embd, ln_eps, backend)
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            self.ln_1_gamma = Parameter(ones_tensor_from_numpy((n_embd,), backend))
+            self.ln_2_gamma = Parameter(ones_tensor_from_numpy((n_embd,), backend))
+            self.ln_1_beta = Parameter(ones_tensor_from_numpy((n_embd,), backend))
+            self.ln_2_beta = Parameter(ones_tensor_from_numpy((n_embd,), backend))
             # END ASSIGN3_3
 
     def forward(self, x):
@@ -212,7 +225,18 @@ class TransformerLayer(Module):
             return x + x2
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            
+            x_flat = x.view(batch_size * seq_len, n_embed)
+            x1 = LayerNorm.apply(x_flat, self.ln_1_gamma, self.ln_1_beta)
+            x1 = x1.view(batch_size, seq_len, n_embed)
+            x1 = self.attention(x1)
+            x = x + x1
+            x_flat = x.view(batch_size * seq_len, n_embed)
+            x2 = LayerNorm.apply(x_flat, self.ln_2_gamma, self.ln_2_beta)
+            x2 = x2.view(batch_size, seq_len, n_embed)
+            x2 = self.ff(x2)
+            return x + x2
+
             # END ASSIGN3_3
 
 
@@ -258,10 +282,10 @@ class DecoderLM(Module):
         
         self.token_embeddings = Embedding(n_vocab, n_embd, backend)
         self.position_embeddings = Embedding(n_positions, n_embd, backend)
-        self.t_layer_1 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
-        self.t_layer_2 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
-        self.t_layer_3 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
-        self.t_layer_4 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend)
+        self.t_layer_1 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend, use_fused_kernel)
+        self.t_layer_2 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend, use_fused_kernel)
+        self.t_layer_3 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend, use_fused_kernel)
+        self.t_layer_4 = TransformerLayer(n_embd, n_head, p_dropout, ln_eps, bias, backend, use_fused_kernel)
         self.dropout = Dropout(p_dropout)
         self.lm_head = Linear(n_embd, n_vocab, bias, backend)
 
@@ -270,7 +294,10 @@ class DecoderLM(Module):
             self.ln = LayerNorm1d(n_embd, ln_eps, backend)
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+
+            self.ln_gamma = Parameter(ones_tensor_from_numpy((n_embd,), backend))
+            self.ln_beta = Parameter(ones_tensor_from_numpy((n_embd,), backend))
+
             # END ASSIGN3_3
         
     def forward(self, idx):
@@ -301,5 +328,19 @@ class DecoderLM(Module):
             return x
         else:
             # BEGIN ASSIGN3_3
-            raise NotImplementedError
+            
+            token_embed = self.token_embeddings(idx)
+            position_embed = self.position_embeddings(pos)
+            x = token_embed + position_embed
+            x = self.dropout(x)
+            x = self.t_layer_1(x)
+            x = self.t_layer_2(x)
+            x = self.t_layer_3(x)
+            x = self.t_layer_4(x)
+            x = x.view(batch_size * seq_len, self.n_embd)
+            x = LayerNorm.apply(x, self.ln_gamma, self.ln_beta)
+            x = self.lm_head(x) 
+            x = x.view(batch_size, seq_len, self.n_vocab)
+            return x
+
             # END ASSIGN3_3
