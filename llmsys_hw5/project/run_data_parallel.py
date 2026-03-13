@@ -42,7 +42,12 @@ def setup(rank, world_size, backend):
     2. Use `torch.distributed` to init the process group
     '''
     # BEGIN_HW5_1_2
-    raise NotImplementedError("Data Parallel Not Implemented Yet")
+
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '11868'
+    
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
+
     # END_HW5_1_2
 
 
