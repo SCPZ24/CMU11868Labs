@@ -15,7 +15,9 @@ class Partition():
     def __getitem__(self, index):
         '''Given index, get the data according to the partitioned index'''
         # BEGIN_HW5_1_1
-        raise NotImplementedError("Data Parallel Not Implemented Yet")
+        
+        return self.data[self.index[index]]
+
         # END_HW5_1_1
 
 class DataPartitioner():
@@ -29,7 +31,16 @@ class DataPartitioner():
         2. Create different partitions of indices according to `sizes` and store in `self.partitions`
         '''
         # BEGIN_HW5_1_1
-        raise NotImplementedError("Data Parallel Not Implemented Yet")
+        
+        size = len(data)
+        self.indices = torch.arange(size)
+        rng.shuffle(self.indices)
+        n_sizes = [size * k for k in sizes]
+        accu = 0
+        for n in n_sizes:
+            self.partitions.append(self.indices[accu:accu+n])
+            accu += n
+
         # END_HW5_1_1
 
     def use(self, partition):
@@ -38,7 +49,9 @@ class DataPartitioner():
         Just one line of code. Think it simply.
         '''
         # BEGIN_HW5_1_1
-        raise NotImplementedError("Data Parallel Not Implemented Yet")
+        
+        return Partition(self.data, self.partitions[partition])
+
         # END_HW5_1_1
 
 def partition_dataset(rank, world_size, dataset, batch_size=128, collate_fn=None):
@@ -54,5 +67,17 @@ def partition_dataset(rank, world_size, dataset, batch_size=128, collate_fn=None
     4. Wrap the dataset with `DataLoader`, remember to customize the `collate_fn`
     """
     # BEGIN_HW5_1
-    raise NotImplementedError("Data Parallel Not Implemented Yet")
+    
+    batch_per_partition = batch_size // world_size
+    partitioned_sizes = [1.0 / world_size] * world_size
+    dataPartitioner = DataPartitioner(dataset, partitioned_sizes)
+    current_partition = dataPartitioner.use(rank)
+    loader = torch.utils.data.DataLoader(
+        current_partition,
+        batch_per_partition,
+        True,
+        collate_fn = collate_fn
+    )
+    return loader
+
     # END_HW5_1
