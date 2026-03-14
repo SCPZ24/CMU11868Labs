@@ -1,3 +1,4 @@
+from multiprocessing import process
 import sys
 from pathlib import Path
 
@@ -32,7 +33,12 @@ def average_gradients(model):
     3. Average the gradients over the world_size (total number of devices)
     '''
     # BEGIN_HW5_1_2
-    raise NotImplementedError("Data Parallel Not Implemented Yet")
+    
+    for param in model.parameters():
+        if param.grad is not None:
+            dist.all_reduce(param.grad, op=dist.ReduceOp.SUM)
+            param.grad /= dist.get_world_size()
+
     # END_HW5_1_2
 
 def setup(rank, world_size, backend):
@@ -202,8 +208,31 @@ if __name__ == '__main__':
     2. You should start the processes to work and terminate resources properly
     '''
     # BEGIN_HW5_1_3
-    world_size = None  # TODO: Define the number of GPUs
-    backend = None  # TODO: Define your backend for communication, we suggest using 'nccl'
+    
+    world_size = args.world_size
+    backend = 'nccl'
 
-    raise NotImplementedError("Data Parallel Not Implemented Yet")
+    for rank in range(world_size):
+        process = Process(
+            target = run_dp,
+            args = (
+                rank,
+                world_size,
+                backend,
+                args.dataset,
+                args.model_max_length,
+                args.n_epochs,
+                args.batch_size,
+                args.learning_rate,
+                args.benchmark_only,
+                args.max_batches,
+                args.pytest,
+            )
+        )
+        process.start()
+        processes.append(process)
+    
+    for process in processes:
+        process.join()
+
     # END_HW5_1_3

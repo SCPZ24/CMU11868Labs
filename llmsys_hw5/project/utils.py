@@ -120,7 +120,7 @@ def generate(model, examples, src_key, tgt_key, tokenizer, model_max_length, dev
 
     return gen_sents
 
-def train(model, optimizer, examples, batch_size, collate_fn, desc, rank=0, average_gradients_fn=None, max_batches=0):
+def train(model: torch.nn.Module, optimizer, examples, batch_size, collate_fn, desc, rank=0, average_gradients_fn=None, max_batches=0):
     model.train()
     
     tokens_per_sec = []
@@ -143,7 +143,9 @@ def train(model, optimizer, examples, batch_size, collate_fn, desc, rank=0, aver
             Just few lines of code. Think simply.
         '''
         # BEGIN_HW5
-        raise NotImplementedError("Data Parallel Not Implemented Yet")
+        
+        average_gradients_fn(model)
+
         # END_HW5
         optimizer.step()
         batch_time = time.time() - t0
