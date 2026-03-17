@@ -61,6 +61,11 @@ def _split_module(modules: nn.Sequential) -> Tuple[List[nn.Sequential], List[tor
         
         device = module._device if isinstance(module, WithDevice) else _retrieve_device(module)
         module = module._module if isinstance(module, WithDevice) else module
+        
+        # If module has no parameters (e.g., ExtractFirstItem), use current_device if available
+        if device.type == 'cpu' and current_device is not None:
+            device = current_device
+            
         if current_device == device:
             current_partition.append(module)
         else:

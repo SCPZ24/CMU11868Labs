@@ -20,7 +20,9 @@ class ExtractFirstItem(nn.Module):
         super(ExtractFirstItem, self).__init__()
     
     def forward(self, x):
-        return x[0]
+        if isinstance(x, tuple):
+            return x[0]
+        return x
 
 class GPT2ModelParallel(GPT2ModelCustom):
     def __init__(self, config):
@@ -47,8 +49,9 @@ class GPT2ModelParallel(GPT2ModelCustom):
 
         for block in self.h:
             blocks.append(block)
-            blocks.append(ExtractFirstItem())
-
+            extractor = ExtractFirstItem()
+            blocks.append(extractor)
+        
         # END_HW5_2_3
         self.h_pp = Pipe(nn.Sequential(*blocks), split_size)
 

@@ -144,7 +144,8 @@ def train(model: torch.nn.Module, optimizer, examples, batch_size, collate_fn, d
         '''
         # BEGIN_HW5
         
-        average_gradients_fn(model)
+        if average_gradients_fn is not None:
+            average_gradients_fn(model)
 
         # END_HW5
         optimizer.step()

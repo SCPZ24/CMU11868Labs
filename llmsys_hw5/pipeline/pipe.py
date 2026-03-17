@@ -69,10 +69,19 @@ class Pipe(nn.Module):
 
         for schedule_list in _clock_cycles(num_chunks, len(self.devices)):
             for i, j in schedule_list:
+                if isinstance(micro_batches[i], tuple):
+                    micro_batches[i] = micro_batches[i][0]
                 micro_batches[i] = micro_batches[i].to(self.devices[j])
+
             self.compute(micro_batches, schedule_list)
         
-        return torch.cat(micro_batches, dim = 0)
+        # Ensure all micro-batches are on the last device before concatenation
+        for i in range(len(micro_batches)):
+            if isinstance(micro_batches[i], tuple):
+                micro_batches[i] = micro_batches[i][0]
+            micro_batches[i] = micro_batches[i].to(self.devices[-1])
+        
+        return torch.cat(micro_batches, dim=0)
 
         # END_HW5_2_2
 
@@ -99,12 +108,12 @@ class Pipe(nn.Module):
             self.in_queues[j].put(task)
 
         for i, j in schedule:
-            res = self.out_queues[j].get()
-            if res[0]:
-                # Success case: (True, (task, batch))
-                batches[i] = res[1][1]
+            success, result = self.out_queues[j].get()
+            if success:
+                _, result = result
+                batches[i] = result
             else:
                 # Failure case: (False, exc_info)
-                raise res[1][1]
+                raise result[1].with_traceback(result[2])
 
         # END_HW5_2_2
