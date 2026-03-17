@@ -33,9 +33,8 @@ class DataPartitioner():
         # BEGIN_HW5_1_1
         
         size = len(data)
-        self.indices = torch.arange(size)
-        rng.shuffle(self.indices)
-        n_sizes = [size * k for k in sizes]
+        self.indices = torch.randperm(size)
+        n_sizes = [int(size * k) for k in sizes]
         accu = 0
         for n in n_sizes:
             self.partitions.append(self.indices[accu:accu+n])

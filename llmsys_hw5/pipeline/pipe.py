@@ -100,7 +100,11 @@ class Pipe(nn.Module):
 
         for i, j in schedule:
             res = self.out_queues[j].get()
-            batches[i] = res
+            if res[0]:
+                # Success case: (True, (task, batch))
+                batches[i] = res[1][1]
+            else:
+                # Failure case: (False, exc_info)
+                raise res[1][1]
 
         # END_HW5_2_2
-
