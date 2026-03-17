@@ -40,10 +40,17 @@ class GPT2ModelParallel(GPT2ModelCustom):
         '''
 
         # BEGIN_HW5_2_3
-        pipe = None
-        raise NotImplementedError("Pipeline Parallel Not Implemented Yet")
+        
+        self.pipeline_parallel = True
+
+        blocks = []
+
+        for block in self.h:
+            blocks.append(block)
+            blocks.append(ExtractFirstItem())
+
         # END_HW5_2_3
-        self.h_pp = pipe
+        self.h_pp = Pipe(nn.Sequential(*blocks), split_size)
 
 class GPT2LMHeadModelParallel(GPT2LMHeadModelCustom):
     _tied_weights_keys = ["lm_head.weight"]

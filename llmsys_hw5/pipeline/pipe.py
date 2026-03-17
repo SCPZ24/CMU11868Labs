@@ -63,7 +63,17 @@ class Pipe(nn.Module):
         Please note that you should put the result on the last device. Putting the result on the same device as input x will lead to pipeline parallel training failing.
         '''
         # BEGIN_HW5_2_2
-        raise NotImplementedError("Pipeline Parallel Not Implemented Yet")
+        
+        micro_batches = list(torch.split(x, self.split_size, 0))
+        num_chunks = len(micro_batches)
+
+        for schedule_list in _clock_cycles(num_chunks, len(self.devices)):
+            for i, j in schedule_list:
+                micro_batches[i] = micro_batches[i].to(self.devices[j])
+            self.compute(micro_batches, schedule_list)
+        
+        return torch.cat(micro_batches, dim = 0)
+
         # END_HW5_2_2
 
     def compute(self, batches, schedule: List[Tuple[int, int]]) -> None:
@@ -75,10 +85,22 @@ class Pipe(nn.Module):
         3. Use the in_queues and out_queues to send and receive tasks.
         4. Store the result back to the batches.
         '''
-        partitions = self.partitions
-        devices = self.devices
-
         # BEGIN_HW5_2_2
-        raise NotImplementedError("Pipeline Parallel Not Implemented Yet")
+        
+        for i, j in schedule:
+            input_feature = batches[i]
+            partition = self.partitions[j]
+
+            def micro_batch_forward(x = input_feature, model = partition):
+                return model.forward(x)
+
+            task = Task(micro_batch_forward)
+
+            self.in_queues[j].put(task)
+
+        for i, j in schedule:
+            res = self.out_queues[j].get()
+            batches[i] = res
+
         # END_HW5_2_2
 
