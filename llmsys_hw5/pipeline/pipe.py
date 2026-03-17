@@ -68,10 +68,7 @@ class Pipe(nn.Module):
         num_chunks = len(micro_batches)
 
         for schedule_list in _clock_cycles(num_chunks, len(self.devices)):
-            for i, j in schedule_list:
-                if isinstance(micro_batches[i], tuple):
-                    micro_batches[i] = micro_batches[i][0]
-                micro_batches[i] = micro_batches[i].to(self.devices[j])
+            micro_batches[i] = micro_batches[i].to(self.devices[j])
 
             self.compute(micro_batches, schedule_list)
         
