@@ -1,0 +1,13 @@
+DP-test
+Single_GPU:
+    Rank 0 training time: avg:22.303150916099547, std:0.19317750800402544,         tokens_per_second: avg: 152608.609566234, std:521.478520277226
+2_GPUs:
+    Rank 0 training time: avg:15.814784216880799, std:1.325908224970651,         tokens_per_second: avg: 150319.9247238256, std:1119.1523066817351
+    Rank 1 training time: avg:13.281434655189514, std:0.4726680712131405,         tokens_per_second: avg: 148169.20377111173, std:931.6910297983691
+
+
+PP-test
+Data Parallel:
+    Training time: avg:22.738145232200623, std:0.14333593845367432,         tokens_per_second: avg: 28147.653489318167, std:177.43621069174515
+PipeLine Parallel:
+    Training time: avg:25.590556621551514, std:0.1671772003173828,         tokens_per_second: avg: 25010.292818474703, std:163.38647081202362
